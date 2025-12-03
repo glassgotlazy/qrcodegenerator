@@ -30,10 +30,10 @@ if uploaded_file is not None:
         col1, col2 = st.columns(2)
         
         with col1:
-            quality = st.slider("Image Quality", 10, 95, 85, 
+            quality = st.slider("Image Quality", 10, 95, 70, 
                                help="Lower quality = smaller QR code")
         with col2:
-            max_dimension = st.slider("Max Dimension (px)", 200, 2000, 800, step=100,
+            max_dimension = st.slider("Max Dimension (px)", 200, 2000, 600, step=100,
                                      help="Resize image to fit within this dimension")
         
         # Resize image if needed
@@ -66,8 +66,9 @@ if uploaded_file is not None:
         data_url = f'data:image/jpeg;base64,{img_base64}'
         
         # File size info
-        encoded_size_kb = len(img_base64) / 1024
-        st.info(f"📊 Original: {file_size_mb:.2f} MB | Encoded size: {encoded_size_kb:.2f} KB")
+        encoded_size_kb = len(data_url) / 1024
+        encoded_size_bytes = len(data_url)
+        st.info(f"📊 Original: {file_size_mb:.2f} MB | Encoded size: {encoded_size_kb:.2f} KB ({encoded_size_bytes:,} bytes)")
         
         # QR code settings
         st.subheader("🔲 QR Code Settings")
@@ -80,31 +81,33 @@ if uploaded_file is not None:
             border = st.slider("Border Size", 1, 10, 4,
                               help="Border thickness around QR code")
         
-        # Updated capacity warning for 10MB limit
-        if encoded_size_kb > 10000:
-            st.error(f"⚠️ The encoded data is {encoded_size_kb:.2f} KB. Maximum limit is 10,000 KB (10 MB). "
-                      "Please reduce quality or image dimensions.")
-        elif encoded_size_kb > 5000:
-            st.warning(f"⚠️ Large encoded size: {encoded_size_kb:.2f} KB. Very large QR codes may be extremely difficult to scan. "
-                      "Consider reducing quality or dimensions for practical use.")
+        # QR Version 40 with Error Correction L can hold approximately 2,953 bytes
+        max_qr_capacity_bytes = 2953
+        
+        # Check capacity warnings
+        if encoded_size_bytes > max_qr_capacity_bytes:
+            st.error(f"🚫 Data too large for QR code! Size: {encoded_size_bytes:,} bytes. Maximum: {max_qr_capacity_bytes:,} bytes (~2.88 KB)")
+            st.warning("**You must reduce the image size:**")
+            st.markdown("""
+            - Reduce **Image Quality** to 30-50
+            - Reduce **Max Dimension** to 300-500px
+            - Or use a smaller/simpler image
+            """)
+        elif encoded_size_bytes > (max_qr_capacity_bytes * 0.8):
+            st.warning(f"⚠️ Approaching QR code capacity limit! ({encoded_size_bytes:,} / {max_qr_capacity_bytes:,} bytes)")
         
         # Generate QR code button
         if st.button("Generate QR Code", type="primary"):
-            # Check if data exceeds 10MB limit
-            if encoded_size_kb > 10000:
-                st.error("❌ Cannot generate QR code: Data exceeds 10,000 KB limit!")
-                st.warning("Try:")
-                st.markdown("""
-                - Reduce **Image Quality** to 50 or lower
-                - Reduce **Max Dimension** to 400px or lower
-                - Use a simpler/smaller image
-                """)
+            # Pre-check data size
+            if encoded_size_bytes > max_qr_capacity_bytes:
+                st.error(f"❌ Cannot generate QR code: Data size ({encoded_size_bytes:,} bytes) exceeds maximum QR code capacity ({max_qr_capacity_bytes:,} bytes)!")
+                st.info("Please reduce image quality or dimensions using the sliders above.")
             else:
-                with st.spinner("Generating high-capacity QR code..."):
+                with st.spinner("Generating QR code..."):
                     try:
-                        # Create QR code with maximum capacity settings
+                        # Create QR code - Use None for version to auto-select, but limit with error handling
                         qr = qrcode.QRCode(
-                            version=40,  # Maximum version for largest capacity (177x177 modules)
+                            version=None,  # Auto-determine based on data size
                             error_correction=qrcode.constants.ERROR_CORRECT_L,  # Lowest error correction = max data
                             box_size=box_size,
                             border=border,
@@ -112,55 +115,75 @@ if uploaded_file is not None:
                         qr.add_data(data_url)
                         qr.make(fit=True)
                         
-                        # Create QR image - FIX: Convert to PIL Image properly
-                        qr_pil_img = qr.make_image(fill_color="black", back_color="white")
-                        
-                        # Convert PIL.Image.Image to actual PIL Image if needed
-                        if hasattr(qr_pil_img, '_img'):
-                            qr_img = qr_pil_img._img
+                        # Check if version exceeds maximum
+                        if qr.version > 40:
+                            st.error(f"❌ Data requires QR version {qr.version}, but maximum is 40!")
+                            st.warning("The image data is too large. Please:")
+                            st.markdown("""
+                            - Reduce **Image Quality** to 40 or lower
+                            - Reduce **Max Dimension** to 400-500px
+                            - Use a simpler image
+                            """)
                         else:
-                            qr_img = qr_pil_img
-                        
-                        # Get actual QR version used
-                        qr_version = qr.version
-                        qr_modules = 17 + (4 * qr_version)
-                        
-                        # Display QR code
-                        st.success(f"✅ QR Code generated successfully! (Version {qr_version}, {qr_modules}x{qr_modules} modules)")
-                        st.image(qr_img, caption="Generated QR Code", width=600)
-                        
-                        # Save QR code to bytes for download - FIX: Use BytesIO properly
-                        qr_buffer = BytesIO()
-                        
-                        # Ensure we have a proper PIL Image object
-                        if not isinstance(qr_img, Image.Image):
-                            qr_img = qr_img.convert('RGB')
-                        
-                        qr_img.save(qr_buffer, format="PNG")
-                        qr_bytes = qr_buffer.getvalue()
-                        
-                        qr_size_kb = len(qr_bytes) / 1024
-                        st.info(f"📁 QR Code file size: {qr_size_kb:.2f} KB")
-                        
-                        # Download button - FIX: Pass bytes directly
-                        st.download_button(
-                            label="⬇️ Download QR Code",
-                            data=qr_bytes,
-                            file_name=f"image_qr_code_v{qr_version}.png",
-                            mime="image/png"
-                        )
-                        
-                        st.success("💡 Tip: Scan this QR code with your phone camera or QR scanner app to view the image!")
-                        
-                        # Scanning difficulty warning
-                        if encoded_size_kb > 2.5:
-                            st.warning("⚠️ This QR code contains a lot of data and may be very difficult to scan with standard QR readers. "
-                                      "You may need a high-resolution printer and specialized QR scanner app.")
+                            # Create QR image
+                            qr_pil_img = qr.make_image(fill_color="black", back_color="white")
+                            
+                            # Convert to proper PIL Image
+                            if hasattr(qr_pil_img, '_img'):
+                                qr_img = qr_pil_img._img
+                            else:
+                                qr_img = qr_pil_img
+                            
+                            # Get actual QR version used
+                            qr_version = qr.version
+                            qr_modules = 17 + (4 * qr_version)
+                            
+                            # Display QR code
+                            st.success(f"✅ QR Code generated successfully! (Version {qr_version}, {qr_modules}x{qr_modules} modules)")
+                            st.image(qr_img, caption="Generated QR Code", width=600)
+                            
+                            # Save QR code to bytes for download
+                            qr_buffer = BytesIO()
+                            
+                            # Ensure we have a proper PIL Image object
+                            if not isinstance(qr_img, Image.Image):
+                                qr_img = qr_img.convert('RGB')
+                            
+                            qr_img.save(qr_buffer, format="PNG")
+                            qr_bytes = qr_buffer.getvalue()
+                            
+                            qr_size_kb = len(qr_bytes) / 1024
+                            st.info(f"📁 QR Code file size: {qr_size_kb:.2f} KB")
+                            
+                            # Download button
+                            st.download_button(
+                                label="⬇️ Download QR Code",
+                                data=qr_bytes,
+                                file_name=f"image_qr_code_v{qr_version}.png",
+                                mime="image/png"
+                            )
+                            
+                            st.success("💡 Tip: Scan this QR code with your phone camera or QR scanner app to view the image!")
+                            
+                            # Scanning difficulty warning
+                            if qr_version >= 30:
+                                st.warning(f"⚠️ This is a Version {qr_version} QR code with high data density. It may be difficult to scan. Use a high-quality scanner app and ensure good lighting.")
+                            elif qr_version >= 20:
+                                st.info(f"ℹ️ Version {qr_version} QR code - should scan well with most modern smartphone cameras.")
                         
                     except Exception as e:
-                        st.error(f"❌ Error generating QR code: {str(e)}")
-                        if "too much data" in str(e).lower() or "data too long" in str(e).lower():
-                            st.warning("🔴 The image data is too large for QR code encoding. Try:")
+                        error_msg = str(e)
+                        st.error(f"❌ Error generating QR code: {error_msg}")
+                        
+                        if "version" in error_msg.lower() or "invalid" in error_msg.lower():
+                            st.warning("🔴 The data is too large for QR code encoding. Try:")
+                            st.markdown("""
+                            - Reduce **Image Quality** to 30-50
+                            - Reduce **Max Dimension** to 300-500px
+                            - Use a much simpler/smaller image
+                            """)
+                        elif "too much data" in error_msg.lower() or "data too long" in error_msg.lower():
+                            st.warning("🔴 The image data exceeds QR code capacity. Try:")
                             st.markdown("""
                             - Reduce **Image Quality** to 40-60
                             - Reduce **Max Dimension** to 400-600px
@@ -177,58 +200,76 @@ with st.expander("ℹ️ How to use"):
     st.markdown("""
     ### Steps:
     1. **Upload** an image file (PNG, JPG, JPEG, GIF, or WEBP) - up to 100MB
-    2. **Adjust compression settings** to fit data within 10MB encoded limit
+    2. **Adjust compression settings** to fit within QR code capacity (~2,953 bytes)
     3. **Customize QR code appearance** (box size, border)
     4. Click **Generate QR Code** button
     5. **Download** the generated QR code
     6. **Scan** the QR code to view your embedded image
     
     ### Important Notes:
-    - **New Limit**: Maximum 10,000 KB (10 MB) of encoded data
-    - **Recommended Settings**: Quality 60-80, Max Dimension 600-1000px
-    - **Large Images**: Will be compressed and resized automatically
-    - **High-Definition Output**: Uses Version 40 QR codes (177×177 modules) for maximum capacity
+    - **QR Code Capacity**: Maximum ~2,953 bytes (2.88 KB) for Version 40 with Low error correction
+    - **Recommended Settings**: Quality 40-70, Max Dimension 400-800px
+    - **Best Results**: Keep encoded size under 2 KB for reliable scanning
+    - **Auto-sizing**: QR version automatically adjusts from 1-40 based on data size
     - **No Internet Required**: Image data is embedded directly in the QR code
     
-    ### Practical Considerations:
-    - QR codes with >3KB of data become very dense and hard to scan
-    - For best results, keep encoded size under 5MB
-    - Use high-resolution display/print for large QR codes
-    - Test scanning with your specific device before final use
+    ### Optimal Settings by Image Type:
+    - **Simple logos/icons**: Quality 60-80, Dimension 400-600px
+    - **Photos**: Quality 30-50, Dimension 300-500px
+    - **Screenshots**: Quality 40-60, Dimension 400-600px
     
     ### Troubleshooting:
-    - If QR generation fails, reduce quality or dimensions
-    - Very complex QR codes require specialized scanners
-    - For box size, use 10-15 for best balance
+    - **"Invalid version" error**: Data too large, reduce quality/dimensions significantly
+    - **Scanning issues**: Increase box size to 12-15, ensure good lighting
+    - **File too large**: Start with Quality 40 and Dimension 400px
     """)
 
 # Technical info
 with st.expander("🔧 Technical Information"):
     st.markdown("""
-    - **QR Version 40**: 177×177 modules, maximum practical capacity
-    - **Error Correction**: Level L (Low) for maximum data storage
+    ### QR Code Specifications:
+    - **QR Versions**: 1-40 (auto-selected based on data)
+    - **Version 40**: 177×177 modules, max ~2,953 bytes capacity
+    - **Error Correction**: Level L (Low) - 7% restoration, maximum data capacity
     - **Encoding**: Base64 + JPEG compression
-    - **Supported Formats**: PNG, JPG, JPEG, GIF, WEBP
-    - **Upload Limit**: 100MB
-    - **Encoded Data Limit**: 10,000 KB (10 MB)
     
-    **Note**: While we allow up to 10MB of encoded data, QR codes with more than 3-5KB 
-    may be impractical to scan with standard smartphone cameras. Consider using alternative 
-    methods like cloud storage with a QR code link for very large images.
+    ### Data Capacity by Version (Error Correction L):
+    - **Version 10**: 652 bytes
+    - **Version 20**: 1,273 bytes
+    - **Version 30**: 2,071 bytes
+    - **Version 40**: 2,953 bytes (MAXIMUM)
+    
+    ### File Support:
+    - **Upload Limit**: 100MB
+    - **Supported Formats**: PNG, JPG, JPEG, GIF, WEBP
+    - **Output Format**: PNG QR code
+    
+    **Note**: Versions above 40 don't exist in the QR code standard. The app auto-selects 
+    the smallest version that can fit your data.
     """)
 
 # Alternative suggestion
-with st.expander("💡 Alternative for Very Large Images"):
+with st.expander("💡 Alternative for Larger Images"):
     st.markdown("""
-    If your image is too large for practical QR code scanning, consider these alternatives:
+    If your image exceeds 2,953 bytes even after compression, consider:
     
-    1. **Upload to cloud storage** (Google Drive, Dropbox, etc.)
-    2. **Generate a short URL** to the image
-    3. **Create a QR code** linking to that URL (much smaller and easier to scan)
+    ### Cloud Storage Method:
+    1. Upload image to **Google Drive, Imgur, or Dropbox**
+    2. Generate a **short URL** (bit.ly, tinyurl.com)
+    3. Create QR code linking to that URL (only ~50 bytes)
     
-    This approach works better for images larger than 200-300 KB.
+    ### Benefits:
+    - ✅ Much smaller QR code (easier to scan)
+    - ✅ Can share full-resolution images
+    - ✅ Can update image without changing QR code
+    
+    ### This Embedded Method:
+    - ✅ No internet required to view
+    - ✅ Image never expires
+    - ✅ Complete privacy (no cloud storage)
+    - ❌ Limited to ~2KB images
     """)
 
 # Footer
 st.markdown("---")
-st.caption("Built with Streamlit • Enhanced for High-Capacity QR Codes (10MB Limit)")
+st.caption("Built with Streamlit • QR Code Versions 1-40 Supported")
