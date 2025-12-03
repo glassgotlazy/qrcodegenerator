@@ -1,275 +1,603 @@
 import streamlit as st
 import qrcode
+from qrcode.image.styledpil import StyledPilImage
+from qrcode.image.styles.moduledrawers import CircleModuleDrawer, RoundedModuleDrawer, SquareModuleDrawer, GappedSquareModuleDrawer
+from qrcode.image.styles.colormasks import SolidFillColorMask
 from PIL import Image
 import base64
 from io import BytesIO
+import validators
 
 # Page configuration
-st.set_page_config(page_title="Image to QR Code", page_icon="📸", layout="centered")
+st.set_page_config(
+    page_title="Ultimate QR Code Generator",
+    page_icon="🎨",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("📸 Image to QR Code Generator")
-st.write("Upload an image and generate a QR code that contains it!")
-
-# File uploader with 100MB limit
-uploaded_file = st.file_uploader("Choose an image file", type=['png', 'jpg', 'jpeg', 'gif', 'webp'], 
-                                  help="Maximum file size: 100MB")
-
-if uploaded_file is not None:
-    # Check file size (100MB = 104857600 bytes)
-    file_size_mb = uploaded_file.size / (1024 * 1024)
+# Custom CSS for cool styling
+st.markdown("""
+<style>
+    /* Main title styling */
+    .main-title {
+        text-align: center;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 3.5rem;
+        font-weight: 800;
+        margin-bottom: 0.5rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    }
     
-    if file_size_mb > 100:
-        st.error(f"❌ File too large! Size: {file_size_mb:.2f} MB. Maximum allowed: 100 MB")
-    else:
-        # Display the uploaded image
-        image = Image.open(uploaded_file)
-        st.image(image, caption=f"Uploaded Image ({file_size_mb:.2f} MB)", use_container_width=True)
+    .subtitle {
+        text-align: center;
+        color: #6c757d;
+        font-size: 1.2rem;
+        margin-bottom: 2rem;
+    }
+    
+    /* Card styling */
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .main .block-container {
+        background: white;
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    
+    /* Button styling */
+    .stButton>button {
+        width: 100%;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.75rem 2rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    }
+    
+    /* Download button */
+    .stDownloadButton>button {
+        width: 100%;
+        background: linear-gradient(90deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.75rem 2rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+    }
+    
+    .stDownloadButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+    }
+    
+    /* Info boxes */
+    .stAlert {
+        border-radius: 10px;
+        border-left: 5px solid #667eea;
+    }
+    
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 0.5rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-weight: 600;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+    
+    /* Success message */
+    .success-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        text-align: center;
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin: 1rem 0;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Title
+st.markdown('<h1 class="main-title">🎨 Ultimate QR Code Generator</h1>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Create stunning, customized QR codes for anything!</p>', unsafe_allow_html=True)
+
+# Sidebar for customization
+with st.sidebar:
+    st.header("🎨 Customization Options")
+    
+    # QR Code Style
+    st.subheader("Style")
+    qr_style = st.selectbox(
+        "Module Style",
+        ["Square", "Circle", "Rounded", "Gapped Square"],
+        help="Choose the shape of QR code modules"
+    )
+    
+    # Color customization
+    st.subheader("Colors")
+    col1, col2 = st.columns(2)
+    with col1:
+        fg_color = st.color_picker("Foreground", "#000000", help="Main QR code color")
+    with col2:
+        bg_color = st.color_picker("Background", "#FFFFFF", help="Background color")
+    
+    # Size settings
+    st.subheader("Size")
+    box_size = st.slider("Box Size", 5, 30, 10, help="Size of each QR module")
+    border = st.slider("Border", 1, 10, 4, help="Border thickness")
+    
+    # Error correction
+    st.subheader("Error Correction")
+    error_correction = st.select_slider(
+        "Level",
+        options=["L (7%)", "M (15%)", "Q (25%)", "H (30%)"],
+        value="M (15%)",
+        help="Higher = more damage resistance but larger QR code"
+    )
+    
+    # Logo upload
+    st.subheader("Logo (Optional)")
+    logo_file = st.file_uploader("Add Logo to Center", type=['png', 'jpg', 'jpeg'], help="Will be resized automatically")
+
+# Map error correction
+error_map = {
+    "L (7%)": qrcode.constants.ERROR_CORRECT_L,
+    "M (15%)": qrcode.constants.ERROR_CORRECT_M,
+    "Q (25%)": qrcode.constants.ERROR_CORRECT_Q,
+    "H (30%)": qrcode.constants.ERROR_CORRECT_H
+}
+
+# Map styles to drawers
+style_map = {
+    "Square": SquareModuleDrawer(),
+    "Circle": CircleModuleDrawer(),
+    "Rounded": RoundedModuleDrawer(),
+    "Gapped Square": GappedSquareModuleDrawer()
+}
+
+# Main content - Tabs for different QR types
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔗 URL/Link", "📸 Image", "📄 File/PDF", "✍️ Text", "📱 Contact/vCard"])
+
+# Function to generate QR code
+def generate_qr(data, style, fg, bg, box, bord, err_corr, logo=None):
+    try:
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=err_corr,
+            box_size=box,
+            border=bord,
+        )
+        qr.add_data(data)
+        qr.make(fit=True)
         
-        # Compression options
-        st.subheader("⚙️ Compression Settings")
+        # Convert hex colors to RGB
+        fg_rgb = tuple(int(fg.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        bg_rgb = tuple(int(bg.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        
+        # Create styled QR code
+        if logo:
+            qr_img = qr.make_image(
+                image_factory=StyledPilImage,
+                module_drawer=style,
+                color_mask=SolidFillColorMask(front_color=fg_rgb, back_color=bg_rgb),
+                embeded_image_path=logo
+            )
+        else:
+            qr_img = qr.make_image(
+                image_factory=StyledPilImage,
+                module_drawer=style,
+                color_mask=SolidFillColorMask(front_color=fg_rgb, back_color=bg_rgb)
+            )
+        
+        return qr_img, qr.version
+    except Exception as e:
+        return None, str(e)
+
+# TAB 1: URL/Link
+with tab1:
+    st.markdown("### 🔗 Generate QR for URL or Link")
+    
+    url_input = st.text_input(
+        "Enter URL",
+        placeholder="https://example.com",
+        help="Enter any website URL or deep link"
+    )
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if url_input:
+            if validators.url(url_input):
+                st.success("✅ Valid URL")
+            else:
+                st.warning("⚠️ URL may be invalid - QR will still be generated")
+    
+    with col2:
+        generate_btn_url = st.button("🎨 Generate QR", key="gen_url", type="primary")
+    
+    if generate_btn_url and url_input:
+        with st.spinner("Creating your stunning QR code..."):
+            logo_path = None
+            if logo_file:
+                logo_img = Image.open(logo_file)
+                logo_path = "temp_logo.png"
+                logo_img.save(logo_path)
+            
+            qr_img, version = generate_qr(
+                url_input,
+                style_map[qr_style],
+                fg_color,
+                bg_color,
+                box_size,
+                border,
+                error_map[error_correction],
+                logo_path
+            )
+            
+            if qr_img:
+                st.markdown('<div class="success-box">✨ QR Code Generated Successfully!</div>', unsafe_allow_html=True)
+                
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.image(qr_img, caption=f"QR Code (Version {version})", use_container_width=True)
+                
+                with col2:
+                    st.metric("QR Version", version)
+                    st.metric("Modules", f"{17 + 4*version}×{17 + 4*version}")
+                    
+                    # Save and download
+                    buf = BytesIO()
+                    qr_img.save(buf, format="PNG")
+                    st.download_button(
+                        "⬇️ Download QR Code",
+                        buf.getvalue(),
+                        "qr_code_url.png",
+                        "image/png"
+                    )
+            else:
+                st.error(f"❌ Error: {version}")
+
+# TAB 2: Image
+with tab2:
+    st.markdown("### 📸 Generate QR for Image")
+    
+    uploaded_image = st.file_uploader("Upload Image", type=['png', 'jpg', 'jpeg', 'gif', 'webp'], key="img_upload")
+    
+    if uploaded_image:
+        file_size_mb = uploaded_image.size / (1024 * 1024)
+        st.image(uploaded_image, caption=f"Uploaded Image ({file_size_mb:.2f} MB)", use_container_width=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            quality = st.slider("JPEG Quality", 10, 95, 50, help="Lower = smaller size")
+        with col2:
+            max_dim = st.slider("Max Dimension (px)", 200, 1000, 400, step=50)
+        
+        generate_btn_img = st.button("🎨 Generate QR", key="gen_img", type="primary")
+        
+        if generate_btn_img:
+            with st.spinner("Processing image and creating QR code..."):
+                # Process image
+                img = Image.open(uploaded_image)
+                
+                # Resize
+                w, h = img.size
+                if w > max_dim or h > max_dim:
+                    if w > h:
+                        new_w, new_h = max_dim, int((max_dim / w) * h)
+                    else:
+                        new_h, new_w = max_dim, int((max_dim / h) * w)
+                    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                
+                # Convert to base64
+                if img.mode == 'RGBA':
+                    bg = Image.new('RGB', img.size, (255, 255, 255))
+                    bg.paste(img, mask=img.split()[3])
+                    img = bg
+                
+                buf = BytesIO()
+                img.save(buf, format="JPEG", optimize=True, quality=quality)
+                img_bytes = buf.getvalue()
+                img_b64 = base64.b64encode(img_bytes).decode()
+                data_url = f'data:image/jpeg;base64,{img_b64}'
+                
+                encoded_kb = len(data_url) / 1024
+                
+                if encoded_kb > 2.9:
+                    st.error(f"❌ Encoded size too large: {encoded_kb:.2f} KB. Reduce quality or dimensions!")
+                else:
+                    st.info(f"📊 Encoded size: {encoded_kb:.2f} KB")
+                    
+                    logo_path = None
+                    if logo_file:
+                        logo_img = Image.open(logo_file)
+                        logo_path = "temp_logo.png"
+                        logo_img.save(logo_path)
+                    
+                    qr_img, version = generate_qr(
+                        data_url,
+                        style_map[qr_style],
+                        fg_color,
+                        bg_color,
+                        box_size,
+                        border,
+                        error_map[error_correction],
+                        logo_path
+                    )
+                    
+                    if qr_img:
+                        st.markdown('<div class="success-box">✨ Image QR Code Generated!</div>', unsafe_allow_html=True)
+                        
+                        col1, col2 = st.columns([2, 1])
+                        with col1:
+                            st.image(qr_img, use_container_width=True)
+                        with col2:
+                            buf = BytesIO()
+                            qr_img.save(buf, format="PNG")
+                            st.download_button(
+                                "⬇️ Download QR",
+                                buf.getvalue(),
+                                "qr_code_image.png",
+                                "image/png"
+                            )
+                    else:
+                        st.error(f"❌ Error: {version}")
+
+# TAB 3: File/PDF
+with tab3:
+    st.markdown("### 📄 Generate QR for File")
+    st.info("⚠️ Files are base64 encoded. Keep files small (<100KB) for scannable QR codes.")
+    
+    uploaded_file = st.file_uploader("Upload File", type=['pdf', 'txt', 'doc', 'docx', 'xlsx', 'csv'], key="file_upload")
+    
+    if uploaded_file:
+        file_size_kb = uploaded_file.size / 1024
+        st.write(f"📁 **File:** {uploaded_file.name} ({file_size_kb:.2f} KB)")
+        
+        if file_size_kb > 100:
+            st.warning("⚠️ File is large. QR code may be difficult to scan.")
+        
+        generate_btn_file = st.button("🎨 Generate QR", key="gen_file", type="primary")
+        
+        if generate_btn_file:
+            with st.spinner("Encoding file..."):
+                file_bytes = uploaded_file.read()
+                file_b64 = base64.b64encode(file_bytes).decode()
+                data_url = f'data:application/octet-stream;base64,{file_b64}'
+                
+                encoded_kb = len(data_url) / 1024
+                
+                if encoded_kb > 2.9:
+                    st.error(f"❌ File too large after encoding: {encoded_kb:.2f} KB")
+                else:
+                    st.success(f"✅ Encoded size: {encoded_kb:.2f} KB")
+                    
+                    logo_path = None
+                    if logo_file:
+                        logo_img = Image.open(logo_file)
+                        logo_path = "temp_logo.png"
+                        logo_img.save(logo_path)
+                    
+                    qr_img, version = generate_qr(
+                        data_url,
+                        style_map[qr_style],
+                        fg_color,
+                        bg_color,
+                        box_size,
+                        border,
+                        error_map[error_correction],
+                        logo_path
+                    )
+                    
+                    if qr_img:
+                        st.markdown('<div class="success-box">✨ File QR Code Generated!</div>', unsafe_allow_html=True)
+                        st.image(qr_img, use_container_width=True)
+                        
+                        buf = BytesIO()
+                        qr_img.save(buf, format="PNG")
+                        st.download_button(
+                            "⬇️ Download QR",
+                            buf.getvalue(),
+                            "qr_code_file.png",
+                            "image/png"
+                        )
+                    else:
+                        st.error(f"❌ Error: {version}")
+
+# TAB 4: Text
+with tab4:
+    st.markdown("### ✍️ Generate QR for Text")
+    
+    text_input = st.text_area(
+        "Enter Text",
+        placeholder="Type your message here...",
+        height=150,
+        help="Any text, message, or data"
+    )
+    
+    if text_input:
+        char_count = len(text_input)
+        st.caption(f"Characters: {char_count}")
+    
+    generate_btn_text = st.button("🎨 Generate QR", key="gen_text", type="primary")
+    
+    if generate_btn_text and text_input:
+        with st.spinner("Creating QR code..."):
+            logo_path = None
+            if logo_file:
+                logo_img = Image.open(logo_file)
+                logo_path = "temp_logo.png"
+                logo_img.save(logo_path)
+            
+            qr_img, version = generate_qr(
+                text_input,
+                style_map[qr_style],
+                fg_color,
+                bg_color,
+                box_size,
+                border,
+                error_map[error_correction],
+                logo_path
+            )
+            
+            if qr_img:
+                st.markdown('<div class="success-box">✨ Text QR Code Generated!</div>', unsafe_allow_html=True)
+                
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.image(qr_img, use_container_width=True)
+                with col2:
+                    buf = BytesIO()
+                    qr_img.save(buf, format="PNG")
+                    st.download_button(
+                        "⬇️ Download QR",
+                        buf.getvalue(),
+                        "qr_code_text.png",
+                        "image/png"
+                    )
+            else:
+                st.error(f"❌ Error: {version}")
+
+# TAB 5: Contact/vCard
+with tab5:
+    st.markdown("### 📱 Generate vCard QR Code")
+    st.info("Create a QR code that saves contact information to phone")
+    
+    with st.form("vcard_form"):
         col1, col2 = st.columns(2)
         
         with col1:
-            quality = st.slider("Image Quality", 10, 95, 70, 
-                               help="Lower quality = smaller QR code")
+            first_name = st.text_input("First Name")
+            last_name = st.text_input("Last Name")
+            email = st.text_input("Email")
+        
         with col2:
-            max_dimension = st.slider("Max Dimension (px)", 200, 2000, 600, step=100,
-                                     help="Resize image to fit within this dimension")
+            phone = st.text_input("Phone Number")
+            company = st.text_input("Company/Organization")
+            website = st.text_input("Website")
         
-        # Resize image if needed
-        img_width, img_height = image.size
-        if img_width > max_dimension or img_height > max_dimension:
-            if img_width > img_height:
-                new_width = max_dimension
-                new_height = int((max_dimension / img_width) * img_height)
+        address = st.text_input("Address")
+        notes = st.text_area("Notes", height=100)
+        
+        submit_vcard = st.form_submit_button("🎨 Generate vCard QR", type="primary")
+    
+    if submit_vcard:
+        # Create vCard format
+        vcard = f"""BEGIN:VCARD
+VERSION:3.0
+N:{last_name};{first_name};;;
+FN:{first_name} {last_name}
+ORG:{company}
+TEL:{phone}
+EMAIL:{email}
+URL:{website}
+ADR:;;{address};;;;
+NOTE:{notes}
+END:VCARD"""
+        
+        with st.spinner("Creating vCard QR code..."):
+            logo_path = None
+            if logo_file:
+                logo_img = Image.open(logo_file)
+                logo_path = "temp_logo.png"
+                logo_img.save(logo_path)
+            
+            qr_img, version = generate_qr(
+                vcard,
+                style_map[qr_style],
+                fg_color,
+                bg_color,
+                box_size,
+                border,
+                error_map[error_correction],
+                logo_path
+            )
+            
+            if qr_img:
+                st.markdown('<div class="success-box">✨ vCard QR Code Generated!</div>', unsafe_allow_html=True)
+                
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.image(qr_img, use_container_width=True)
+                    st.caption("Scan this to save contact to your phone!")
+                
+                with col2:
+                    buf = BytesIO()
+                    qr_img.save(buf, format="PNG")
+                    st.download_button(
+                        "⬇️ Download vCard QR",
+                        buf.getvalue(),
+                        f"vcard_{first_name}_{last_name}.png",
+                        "image/png"
+                    )
             else:
-                new_height = max_dimension
-                new_width = int((max_dimension / img_height) * img_width)
-            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            st.info(f"🔄 Image resized to {new_width}x{new_height} pixels")
-        
-        # Convert image to base64
-        buffered = BytesIO()
-        
-        # Convert RGBA to RGB if necessary
-        if image.mode == 'RGBA':
-            background = Image.new('RGB', image.size, (255, 255, 255))
-            background.paste(image, mask=image.split()[3])
-            image = background
-        
-        # Save with compression
-        image.save(buffered, format="JPEG", optimize=True, quality=quality)
-        img_bytes = buffered.getvalue()
-        img_base64 = base64.b64encode(img_bytes).decode()
-        
-        # Create data URL
-        data_url = f'data:image/jpeg;base64,{img_base64}'
-        
-        # File size info
-        encoded_size_kb = len(data_url) / 1024
-        encoded_size_bytes = len(data_url)
-        st.info(f"📊 Original: {file_size_mb:.2f} MB | Encoded size: {encoded_size_kb:.2f} KB ({encoded_size_bytes:,} bytes)")
-        
-        # QR code settings
-        st.subheader("🔲 QR Code Settings")
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            box_size = st.slider("QR Box Size", 5, 20, 10,
-                                help="Size of each box in pixels (larger = bigger QR)")
-        with col4:
-            border = st.slider("Border Size", 1, 10, 4,
-                              help="Border thickness around QR code")
-        
-        # QR Version 40 with Error Correction L can hold approximately 2,953 bytes
-        max_qr_capacity_bytes = 2953
-        
-        # Check capacity warnings
-        if encoded_size_bytes > max_qr_capacity_bytes:
-            st.error(f"🚫 Data too large for QR code! Size: {encoded_size_bytes:,} bytes. Maximum: {max_qr_capacity_bytes:,} bytes (~2.88 KB)")
-            st.warning("**You must reduce the image size:**")
-            st.markdown("""
-            - Reduce **Image Quality** to 30-50
-            - Reduce **Max Dimension** to 300-500px
-            - Or use a smaller/simpler image
-            """)
-        elif encoded_size_bytes > (max_qr_capacity_bytes * 0.8):
-            st.warning(f"⚠️ Approaching QR code capacity limit! ({encoded_size_bytes:,} / {max_qr_capacity_bytes:,} bytes)")
-        
-        # Generate QR code button
-        if st.button("Generate QR Code", type="primary"):
-            # Pre-check data size
-            if encoded_size_bytes > max_qr_capacity_bytes:
-                st.error(f"❌ Cannot generate QR code: Data size ({encoded_size_bytes:,} bytes) exceeds maximum QR code capacity ({max_qr_capacity_bytes:,} bytes)!")
-                st.info("Please reduce image quality or dimensions using the sliders above.")
-            else:
-                with st.spinner("Generating QR code..."):
-                    try:
-                        # Create QR code - Use None for version to auto-select, but limit with error handling
-                        qr = qrcode.QRCode(
-                            version=None,  # Auto-determine based on data size
-                            error_correction=qrcode.constants.ERROR_CORRECT_L,  # Lowest error correction = max data
-                            box_size=box_size,
-                            border=border,
-                        )
-                        qr.add_data(data_url)
-                        qr.make(fit=True)
-                        
-                        # Check if version exceeds maximum
-                        if qr.version > 40:
-                            st.error(f"❌ Data requires QR version {qr.version}, but maximum is 40!")
-                            st.warning("The image data is too large. Please:")
-                            st.markdown("""
-                            - Reduce **Image Quality** to 40 or lower
-                            - Reduce **Max Dimension** to 400-500px
-                            - Use a simpler image
-                            """)
-                        else:
-                            # Create QR image
-                            qr_pil_img = qr.make_image(fill_color="black", back_color="white")
-                            
-                            # Convert to proper PIL Image
-                            if hasattr(qr_pil_img, '_img'):
-                                qr_img = qr_pil_img._img
-                            else:
-                                qr_img = qr_pil_img
-                            
-                            # Get actual QR version used
-                            qr_version = qr.version
-                            qr_modules = 17 + (4 * qr_version)
-                            
-                            # Display QR code
-                            st.success(f"✅ QR Code generated successfully! (Version {qr_version}, {qr_modules}x{qr_modules} modules)")
-                            st.image(qr_img, caption="Generated QR Code", width=600)
-                            
-                            # Save QR code to bytes for download
-                            qr_buffer = BytesIO()
-                            
-                            # Ensure we have a proper PIL Image object
-                            if not isinstance(qr_img, Image.Image):
-                                qr_img = qr_img.convert('RGB')
-                            
-                            qr_img.save(qr_buffer, format="PNG")
-                            qr_bytes = qr_buffer.getvalue()
-                            
-                            qr_size_kb = len(qr_bytes) / 1024
-                            st.info(f"📁 QR Code file size: {qr_size_kb:.2f} KB")
-                            
-                            # Download button
-                            st.download_button(
-                                label="⬇️ Download QR Code",
-                                data=qr_bytes,
-                                file_name=f"image_qr_code_v{qr_version}.png",
-                                mime="image/png"
-                            )
-                            
-                            st.success("💡 Tip: Scan this QR code with your phone camera or QR scanner app to view the image!")
-                            
-                            # Scanning difficulty warning
-                            if qr_version >= 30:
-                                st.warning(f"⚠️ This is a Version {qr_version} QR code with high data density. It may be difficult to scan. Use a high-quality scanner app and ensure good lighting.")
-                            elif qr_version >= 20:
-                                st.info(f"ℹ️ Version {qr_version} QR code - should scan well with most modern smartphone cameras.")
-                        
-                    except Exception as e:
-                        error_msg = str(e)
-                        st.error(f"❌ Error generating QR code: {error_msg}")
-                        
-                        if "version" in error_msg.lower() or "invalid" in error_msg.lower():
-                            st.warning("🔴 The data is too large for QR code encoding. Try:")
-                            st.markdown("""
-                            - Reduce **Image Quality** to 30-50
-                            - Reduce **Max Dimension** to 300-500px
-                            - Use a much simpler/smaller image
-                            """)
-                        elif "too much data" in error_msg.lower() or "data too long" in error_msg.lower():
-                            st.warning("🔴 The image data exceeds QR code capacity. Try:")
-                            st.markdown("""
-                            - Reduce **Image Quality** to 40-60
-                            - Reduce **Max Dimension** to 400-600px
-                            - Use a simpler image with fewer details
-                            """)
-                        else:
-                            st.info("Try adjusting compression settings or using a smaller/simpler image")
+                st.error(f"❌ Error: {version}")
 
-else:
-    st.info("👆 Please upload an image to get started (max 100MB)")
-
-# Instructions
-with st.expander("ℹ️ How to use"):
-    st.markdown("""
-    ### Steps:
-    1. **Upload** an image file (PNG, JPG, JPEG, GIF, or WEBP) - up to 100MB
-    2. **Adjust compression settings** to fit within QR code capacity (~2,953 bytes)
-    3. **Customize QR code appearance** (box size, border)
-    4. Click **Generate QR Code** button
-    5. **Download** the generated QR code
-    6. **Scan** the QR code to view your embedded image
-    
-    ### Important Notes:
-    - **QR Code Capacity**: Maximum ~2,953 bytes (2.88 KB) for Version 40 with Low error correction
-    - **Recommended Settings**: Quality 40-70, Max Dimension 400-800px
-    - **Best Results**: Keep encoded size under 2 KB for reliable scanning
-    - **Auto-sizing**: QR version automatically adjusts from 1-40 based on data size
-    - **No Internet Required**: Image data is embedded directly in the QR code
-    
-    ### Optimal Settings by Image Type:
-    - **Simple logos/icons**: Quality 60-80, Dimension 400-600px
-    - **Photos**: Quality 30-50, Dimension 300-500px
-    - **Screenshots**: Quality 40-60, Dimension 400-600px
-    
-    ### Troubleshooting:
-    - **"Invalid version" error**: Data too large, reduce quality/dimensions significantly
-    - **Scanning issues**: Increase box size to 12-15, ensure good lighting
-    - **File too large**: Start with Quality 40 and Dimension 400px
-    """)
-
-# Technical info
-with st.expander("🔧 Technical Information"):
-    st.markdown("""
-    ### QR Code Specifications:
-    - **QR Versions**: 1-40 (auto-selected based on data)
-    - **Version 40**: 177×177 modules, max ~2,953 bytes capacity
-    - **Error Correction**: Level L (Low) - 7% restoration, maximum data capacity
-    - **Encoding**: Base64 + JPEG compression
-    
-    ### Data Capacity by Version (Error Correction L):
-    - **Version 10**: 652 bytes
-    - **Version 20**: 1,273 bytes
-    - **Version 30**: 2,071 bytes
-    - **Version 40**: 2,953 bytes (MAXIMUM)
-    
-    ### File Support:
-    - **Upload Limit**: 100MB
-    - **Supported Formats**: PNG, JPG, JPEG, GIF, WEBP
-    - **Output Format**: PNG QR code
-    
-    **Note**: Versions above 40 don't exist in the QR code standard. The app auto-selects 
-    the smallest version that can fit your data.
-    """)
-
-# Alternative suggestion
-with st.expander("💡 Alternative for Larger Images"):
-    st.markdown("""
-    If your image exceeds 2,953 bytes even after compression, consider:
-    
-    ### Cloud Storage Method:
-    1. Upload image to **Google Drive, Imgur, or Dropbox**
-    2. Generate a **short URL** (bit.ly, tinyurl.com)
-    3. Create QR code linking to that URL (only ~50 bytes)
-    
-    ### Benefits:
-    - ✅ Much smaller QR code (easier to scan)
-    - ✅ Can share full-resolution images
-    - ✅ Can update image without changing QR code
-    
-    ### This Embedded Method:
-    - ✅ No internet required to view
-    - ✅ Image never expires
-    - ✅ Complete privacy (no cloud storage)
-    - ❌ Limited to ~2KB images
-    """)
-
-# Footer
+# Footer with instructions
 st.markdown("---")
-st.caption("Built with Streamlit • QR Code Versions 1-40 Supported")
+with st.expander("📚 How to Use"):
+    st.markdown("""
+    ### Features:
+    - **5 QR Code Types**: URL, Image, File, Text, and vCard
+    - **Custom Styling**: Choose from 4 different module styles
+    - **Color Customization**: Pick any foreground and background colors
+    - **Logo Support**: Add your brand logo to the center
+    - **Error Correction**: Adjust damage resistance level
+    - **High Quality**: Download in PNG format
+    
+    ### Tips:
+    - **URLs**: Perfect for websites, social media, menus, etc.
+    - **Images**: Keep under 2.9KB encoded (reduce quality/size)
+    - **Files**: Best for small documents (<100KB)
+    - **Text**: Great for messages, WiFi passwords, etc.
+    - **vCard**: Share contact info that saves automatically
+    
+    ### Best Practices:
+    - Higher error correction = better damage resistance but larger QR
+    - For logos, use high error correction (Q or H)
+    - Test QR codes before printing in large quantities
+    - Use high contrast colors for better scanning
+    """)
+
+st.markdown("---")
+st.markdown(
+    '<div style="text-align: center; color: #6c757d;">🎨 Made with ❤️ using Streamlit | Designed for maximum flexibility & style</div>',
+    unsafe_allow_html=True
+)
